@@ -19,35 +19,20 @@ ApplicationUser getAppUserFromEvent(def event){
     def userManager = ComponentAccessor.getComponent(UserManager)
     return userManager.getUserByKey(ApplicationUsers.getKeyFor(event.getUser()))
 }
-
-void sendMail(String body){
-    log.warn(body)
-    return;
-    try{
-        def mailServer = ComponentAccessor.getMailServerManager().getDefaultSMTPMailServer()
-        def mail = new Email("iss-support@aety.io");
-        mail.setBody(body);
-        mail.setSubject("jira.issworld.com: Error in listener mapping UPN to Group")
-        mailServer.send(mail)
-    } catch(Exception e){
-        log.error("Could not send mail", e)
-        throw e
-    }
-}
-
 boolean isInternalEmployee(ApplicationUser user) {
-    return !user.getUsername().endsWith("@external.issworld.com")
+    if (user.username == null) {
+        return true // Handle null case as needed
+    }
+    String regex = /^.+@(?!(.*external.*)).{0,16}\.issworld\.com$/
+    return (user.username =~ regex)
 }
 
 String groupName = "jira-internal-employees"
-def log = Logger.getLogger("io.aety.scriptrunner.upntointernalgroupmapper")
-
-log.setLevel(Level.WARN)
+String externalGroupName = "jira-external-employees"
 
 ApplicationUser appUser = getAppUserFromEvent(event)
 if (!appUser) {
     def message = "event did not contain any user: " + event
-    sendMail(message)
     throw new Exception(message)
 }
 
@@ -58,8 +43,15 @@ if(isInternalEmployee(appUser)) {
         groupManager.addUserToGroup(appUser,group)
     } catch (Exception e){
         String body = "Could not add user " + appUser.getUsername() + " to group " + groupName
-        sendMail(body)
+        throw e;
+    }
+} else if (appUser.getUsername().endsWith("@external.issworld.com")){
+    def groupManager = ComponentAccessor.getGroupManager()
+    try{
+        def group = groupManager.getGroup(externalGroupName)
+        groupManager.addUserToGroup(appUser,group)
+    } catch (Exception e){
+        String body = "Could not add user " + appUser.getUsername() + " to group " + groupName
         throw e;
     }
 }
-
